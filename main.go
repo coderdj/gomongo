@@ -13,6 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var client *mongo.Client
@@ -28,7 +29,12 @@ type Control struct {
 	Comment string   `json:"comment" bson:"comment,omitempty"`
 	//some stuff about linked or not		
 }
-	
+
+type User struct{
+	// Just get API key parameters
+	APIUser string `bson:"api_username,omitempty"`
+	APIKey  string `bson:"api_key,omitempty"`
+}
 
 type Status struct {
 	ID    primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
@@ -57,22 +63,37 @@ func AuthCheck(handlerFunc http.HandlerFunc) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 
 		fmt.Println(request.URL.Path)
-
 		// Get auth params from URL
 		user := request.FormValue("api_user")
 		key := request.FormValue("api_key")
-		fmt.Println(user)
-		fmt.Println(key)
 		if key == "" || user == ""{
 			response.WriteHeader(http.StatusInternalServerError)
 			response.Write([]byte(`{"message": "Access denied"}`))
 			return
 		}
-
-		// Check against API key in database for this user
-		
-		// If it passes, then do this
-		handlerFunc(response, request)
+		// Check database for user
+		collection := client.Database("daq").Collection("users")
+		ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+		cursor, err := collection.Find(ctx, bson.M{"api_username": user})
+		if err != nil {
+			response.WriteHeader(http.StatusInternalServerError)
+			response.Write([]byte(`{"message": "` + err.Error() + `"}`))
+			return
+		}
+		// Package as json and return
+		for cursor.Next(ctx) {
+			var user_doc User
+			cursor.Decode(&user_doc)
+			if bcrypt.CompareHashAndPassword([]byte(user_doc.APIKey), []byte(key)) == nil{
+				handlerFunc(response,request)
+				return
+			}
+			break
+		}
+		// If it fails, then do this
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(`{"message": "Access denied"}`))
+		return
 	}
 }
 
