@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 	"strconv"
+	"errors"
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -18,43 +19,15 @@ import (
 
 var client *mongo.Client
 
-type Control struct {
-	// (not yet used)
-	ID        primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
-	Detector string  `json:"detector,omitempty" bson:"detector,omitempty"`
-	Mode     string  `json:"mode" bson:"mode,omitempty"`
-	StopAfter int    `json:"stop_after" bson:"stop_after,omitempty"`
-	Active  string   `json:"active,omitempty" bson:"active,omitempty"`
-	User     string  `json:"user" bson:"user,omitempty"`
-	Comment string   `json:"comment" bson:"comment,omitempty"`
-	//some stuff about linked or not		
-}
-
-type User struct{
-	// Just get API key parameters
-	APIUser string `bson:"api_username,omitempty"`
-	APIKey  string `bson:"api_key,omitempty"`
-}
-
-type Status struct {
-	ID    primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
-	Host  string `json:"host,omitempty" bson:"host,omitempty"`
-	Type  string `json:"type,omitempty" bson:"type,omitempty"`
-	Status int32 `json:"status" bson:"status,omitempty"`
-	Rate float64 `json:"rate" bson:"rate,omitempty"`
-	BufferLength float64 `json:"buffer_length" bson:"buffer_length,omitempty"`
-	RunMode string `json:"run_mode,omitempty" bson:"run_mode,omitempty"`
-	Active []string `json:"active,omitempty" bson:"active,omitempty"`
-}
-
 func main() {
 	fmt.Println("Starting the API")
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	clientOptions := options.Client().ApplyURI(os.Getenv("DAQ_MONGO_URI"))
 	client, _ = mongo.Connect(ctx, clientOptions)
 	router := mux.NewRouter()
-	// router.HandleFunc("/setcommand/{detector}", UpdateCommandEndpoint).Methods("POST")
+	router.HandleFunc("/helloworld", AuthCheck(HelloWorld)).Methods("GET")
 	router.HandleFunc("/getcommand/{detector}", AuthCheck(GetCommandEndpoint)).Methods("GET")
+	router.HandleFunc("/setcommand/{detector}", AuthCheck(UpdateCommandEndpoint)).Methods("POST")
 	router.HandleFunc("/getstatus/{host}", AuthCheck(GetStatusEndpoint)).Methods("GET")
 	http.ListenAndServe(":12345", router)
 }
@@ -97,6 +70,21 @@ func AuthCheck(handlerFunc http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func HelloWorld(response http.ResponseWriter, request *http.Request){
+	/*
+              Basic check to see if you can see the API. Should function even
+              if the backend database is down.
+        */
+
+	t := time.Now().UTC()
+	tstring := t.Format("2006-01-02 15:04:05")
+	
+	response.Header().Set("content-type", "application/json")
+	response.WriteHeader(http.StatusOK)
+	response.Write([]byte(fmt.Sprintf(`{"message": "Hello to you too. The current time is %s"}`,
+		tstring)))
+	return
+}
 
 func GetStatusEndpoint(response http.ResponseWriter, request *http.Request) {
 	/*
@@ -166,27 +154,105 @@ func GetCommandEndpoint(response http.ResponseWriter, request *http.Request) {
 	params := mux.Vars(request)
 	detector := params["detector"]
 
-	// Mongo connectivity and context
-	collection := client.Database("daq").Collection("detector_control")
-	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
-
-	// golang has no findOne? wtf
-	cursor, err := collection.Find(ctx, bson.M{"detector": detector})
+	control_doc, err = GetControlDoc(detector)
 	if err != nil {
 		response.WriteHeader(http.StatusInternalServerError)
 		response.Write([]byte(`{"message": "` + err.Error() + `"}`))
 		return
 	}
-	// Package as json and return
+	json.NewEncoder(response).Encode(control_doc)
+	return		
+}
+
+func UpdateCommandEndpoint(response http.ResponseWriter, request *http.Request) {
+	response.Header().Set("content-type", "application/json")
+	if err := request.ParseForm(); err != nil {
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(`{"message": "Malformed request error: ` + err.Error() + `"}`))
+		return
+	}
+
+	// Right now we ONLY support controlling the TPC. Fail if not TPC.
+	// Probably if you're reading this you want to make it support the other detectors,
+	// so right here is a good place to start. :-)
+	params := mux.Vars(request)
+	detector := params["detector"]
+	if detector != "tpc" {
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(`{"message": "Sorry, we don't support detector`+
+			detector+` yet!"}`))
+		return
+	}
+
+	// As a precursor to doing anything the TPC DAQ must be IDLE and the current command
+	// must have it 'deactivated'. So let's have a look then. First the control doc.
+	control_doc, err := GetControlDoc(detector)
+	if err != nil {
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(
+			`{"message": "`+err.Error()+`"}`))
+		return
+	}
+	if(control_doc.Active != "false" || control_doc.link_mv != "false" ||
+		control_doc.link_nv != "false"){
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(
+			`{"message": "TPC must be inactive and unlinked to other ` +
+				` detectors to control via API"}`))
+		return
+	}
+	// Now the status
+	detector_status, err := GetDetectorStatus(detector)
+	if err != nil {
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(`{"message": "`+err.Error()+`"}`))
+		return
+	}
+
+	
+}
+
+func GetControlDoc(detector) (Control, error){
+	// Just fetches the control doc for this detector
+	collection := client.Database("daq").Collection("detector_control")
+	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	cursor, err := collection.Find(ctx, bson.M{"detector": detector})
+	if err != nil {
+		return nil, err
+	}
 	for cursor.Next(ctx) {
 		var control_doc Control
 		cursor.Decode(&control_doc)
-		json.NewEncoder(response).Encode(control_doc)
-		return
+		return control_doc, nil;
 	}
-	// If we hit this point then the cursor was empty
-	response.WriteHeader(http.StatusInternalServerError)
-	response.Write([]byte(`{"message": "query returned no documents"}`))
-	return
-	
+	return nil, errors.New("No control document found for detector " + detector);
+}
+
+func GetDetectorStatus(detector, timeout) (DetectorStatus, error){
+	// Gets the most recent detector status for detector. Optionally, timeout
+	// ensures that the status is not stale past $timeout seconds or it will
+	// set the error instead.
+	collection := client.Database("daq").Collection("aggregate_status")
+	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	options := options.Find()	
+	options.SetSort(bson.D{{"_id", -1}})
+	options.SetLimit(1)
+	cursor, err := collection.Find(ctx, bson.M{"detector": detector}, options)
+	if err != nil {
+		return nil, err
+	}
+
+	for cursor.Next(ctx) {
+		var aggregate_status DetectorStatus
+		cursor.Decode(&aggregate_status)
+
+		// If timeout was given a value then check
+		if timeout > 0 && time.Now().Unix()-aggregate_status.Unix() > timeout{
+			return nil, errors.New("Status doc found, but it's " +
+				(time.Now().Unix()-aggregate_status.Unix()).toString() +
+				" seconds old");						
+		}
+		return aggregate_status, nil
+	}
+	return nil, errors.New("No status doc found at all for detector " + detector);
 }
