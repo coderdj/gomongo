@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+	"errors"
 	"github.com/gorilla/mux"	
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -72,4 +73,51 @@ func GetStatusEndpoint(response http.ResponseWriter, request *http.Request) {
 	response.WriteHeader(http.StatusInternalServerError)
 	response.Write([]byte(`{"message": "query returned no documents"}`))
 	return
+}
+
+func GetDetectorStatusEndpoint(response http.ResponseWriter, request *http.Request) {
+
+	response.Header().Set("content-type", "application/json")
+	params := mux.Vars(request)
+	detector := params["detector"]
+	status, err := GetDetectorStatus(detector, 30);
+	if err != nil {
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(`{"message": "No status update for 30 seconds"}`))
+		return
+	}
+	json.NewEncoder(response).Encode(status)
+	return
+		
+}
+
+func GetDetectorStatus(detector string, timeout int64) (DetectorStatus, error){
+	// Gets the most recent detector status for detector. Optionally, timeout
+	// ensures that the status is not stale past $timeout seconds or it will
+	// set the error instead.
+	collection := client.Database("daq").Collection("aggregate_status")
+	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	options := options.Find()
+	options.SetSort(bson.D{{"_id", -1}})
+	options.SetLimit(1)
+	cursor, err := collection.Find(ctx, bson.M{"detector": detector}, options)
+
+	var aggregate_status DetectorStatus
+	if err != nil {
+		return aggregate_status, err
+	}
+
+	for cursor.Next(ctx) {
+
+		cursor.Decode(&aggregate_status)
+
+		// If timeout was given a value then check
+		if timeout > 0 && time.Now().Unix()-aggregate_status.Time.Unix() > timeout{
+			return aggregate_status, errors.New("Status doc found, but it's " +
+				strconv.FormatInt(time.Now().Unix()-aggregate_status.Time.Unix(),10) +
+				" seconds old");
+		}
+		return aggregate_status, nil
+	}
+	return aggregate_status, errors.New("No status doc found at all for detector " + detector);
 }

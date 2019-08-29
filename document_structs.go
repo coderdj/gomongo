@@ -10,11 +10,11 @@ type Control struct {
 	// Control document for setting the desired state of the system. 
 	ID        primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
 	Detector string  `json:"detector,omitempty" bson:"detector,omitempty"`
-	Mode     string  `json:"mode" bson:"mode,omitempty"`
-	StopAfter int    `json:"stop_after" bson:"stop_after,omitempty"`
+	Mode     string  `json:"mode,omitempty" bson:"mode,omitempty"`
+	StopAfter string `json:"stop_after,omitempty" bson:"stop_after,omitempty"`
 	Active  string   `json:"active,omitempty" bson:"active,omitempty"`
-	User     string  `json:"user" bson:"user,omitempty"`
-	Comment string   `json:"comment" bson:"comment,omitempty"`
+	User     string  `json:"user,omitempty" bson:"user,omitempty"`
+	Comment string   `json:"comment,omitempty" bson:"comment,omitempty"`
 	// The following two options only appear for 'tpc' and allow simultaneous
 	// operation. 
 	LinkMV  string   `json:"link_mv,omitempty" bson:"link_mv,omitempty"`
@@ -43,7 +43,7 @@ type DetectorStatus struct{
 	Rate float64 `json:"rate" bson:"rate"`
 	Readers int32 `json:"readers" bson:"readers"`
 	Time time.Time `json:"time,omitempty" bson:"time,omitempty"`
-	Buffer float64 `json:"buff,omitempty" bson:"buff,omitempty"`
+	Buffer float64 `json:"buff" bson:"buff,omitempty"`
 	Mode string `json:"mode,omitempty" bson:"mode,omitempty"`
 }
 
