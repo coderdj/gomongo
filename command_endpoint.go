@@ -43,10 +43,11 @@ func UpdateCommandEndpoint(response http.ResponseWriter, request *http.Request) 
 		response.Write([]byte(`{"message": "Sorry, we don't support detector` +
 			detector + ` yet!"}`))
 		return
-	}
+	}	
 
 	// As a precursor to doing anything the TPC DAQ must be IDLE and the current command
 	// must have it 'deactivated'. So let's have a look then. First the control doc.
+	// It must also be in 'remote' mode
 	control_doc, err := GetControlDoc(detector)
 	if err != nil {
 		response.WriteHeader(http.StatusInternalServerError)
@@ -54,6 +55,14 @@ func UpdateCommandEndpoint(response http.ResponseWriter, request *http.Request) 
 			`{"message": "` + err.Error() + `"}`))
 		return
 	}
+	if( (control_doc.Remote != "true"){
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(
+			`{"message": "TPC must be in remote control mode ` +
+				`to control via API"}`))
+		return
+	}
+		
 	if( (control_doc.Active != "false" &&  request.FormValue("active") == "true") ||
 		(control_doc.Active != "true" && request.FormValue("active") == "false") ||
 		control_doc.LinkMV != "false" ||

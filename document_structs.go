@@ -15,6 +15,7 @@ type Control struct {
 	Active  string   `json:"active,omitempty" bson:"active,omitempty"`
 	User     string  `json:"user,omitempty" bson:"user,omitempty"`
 	Comment string   `json:"comment,omitempty" bson:"comment,omitempty"`
+	Remote  string   `json:"remote,omitempty" bson:"remote,omitempty"`
 	// The following two options only appear for 'tpc' and allow simultaneous
 	// operation. 
 	LinkMV  string   `json:"link_mv,omitempty" bson:"link_mv,omitempty"`
