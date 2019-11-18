@@ -38,45 +38,52 @@ func UpdateCommandEndpoint(response http.ResponseWriter, request *http.Request) 
 	// so right here is a good place to start. :-)
 	params := mux.Vars(request)
 	detector := params["detector"]
-	if detector != "tpc" {
-		response.WriteHeader(http.StatusInternalServerError)
-		response.Write([]byte(`{"message": "Sorry, we don't support detector` +
-			detector + ` yet!"}`))
-		return
-	}	
 
-	// As a precursor to doing anything the TPC DAQ must be IDLE and the current command
+	// As a precursor to doing anything the DAQ must be IDLE and the current command
 	// must have it 'deactivated'. So let's have a look then. First the control doc.
 	// It must also be in 'remote' mode
 	control_doc, err := GetControlDoc(detector)
+	control_doc_tpc, err := GetControlDoc("tpc")
 	if err != nil {
 		response.WriteHeader(http.StatusInternalServerError)
 		response.Write([]byte(
 			`{"message": "` + err.Error() + `"}`))
 		return
 	}
-	if( (control_doc.Remote != "true"){
+	if(control_doc.Remote != "true"){
 		response.WriteHeader(http.StatusInternalServerError)
 		response.Write([]byte(
-			`{"message": "TPC must be in remote control mode ` +
+			`{"message": "Detector must be in remote control mode ` +
 				`to control via API"}`))
 		return
 	}
-		
-	if( (control_doc.Active != "false" &&  request.FormValue("active") == "true") ||
-		(control_doc.Active != "true" && request.FormValue("active") == "false") ||
-		control_doc.LinkMV != "false" ||
-		control_doc.LinkNV != "false"){
-		fmt.Println(control_doc)
-		fmt.Println(control_doc.Active)
-		fmt.Println(control_doc.LinkMV)
-		fmt.Println(control_doc.LinkNV)
+
+	// Here we have a bit of a logic conundrum because we want to support 3 different
+	// detectors and they all just have slightly different requirements.
+	if((control_doc.Active != "false" && request.FormValue("active") == "true") ||
+		(control_doc.Active != "true" && request.FormValue("active") == "false") ) {
 		response.WriteHeader(http.StatusInternalServerError)
 		response.Write([]byte(
-			`{"message": "TPC must be inactive and unlinked to other ` +
-				` detectors to control via API"}`))
+			`{"message": "Detectors must be inactive to control via API"}`))
+		return
+	} else if ( detector == "tpc" &&
+		(control_doc.LinkNV != "false" || control_doc.LinkMV != "false") ){
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(
+			`{"message": "All detectors must be unlinked to start TPC"}`))
+		return
+	} else if( detector == "neutron_veto" && control_doc_tpc.LinkNV != "false" ){
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(
+			`{"message": "NV must be unlinked to other detectors to control via API"}`))
+		return
+	} else if( detector == "muon_veto" && control_doc_tpc.LinkMV != "false" ){
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(
+			`{"message": "MV unlinked to other detectors to control via API"}`))
 		return
 	}
+		
 	// Now the status
 	detector_status, err := GetDetectorStatus(detector, -1)
 	if err != nil {
