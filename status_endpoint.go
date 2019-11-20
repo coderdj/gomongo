@@ -91,6 +91,46 @@ func GetDetectorStatusEndpoint(response http.ResponseWriter, request *http.Reque
 		
 }
 
+func GetErrorsEndpoint(response http.ResponseWriter, request *http.Request){
+
+	response.Header().Set("content-type", "application/json")
+	params := mux.Vars(request)
+	min_level, err := strconv.Atoi(params["level"])
+	if err != nil {
+		min_level = 2
+	}
+	errors, err := GetErrors(min_level)
+	if err != nil{
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(`{"message": "No response when querying for errors"}`))
+		return
+	}
+	json.NewEncoder(response).Encode(errors)
+	return
+}
+
+func GetErrors(min_level int) ([]LogEntry, error){
+	// 0-debug, 1-message, 2-warning, 3-error, 4-fatal, 5-user//
+	collection := client.Database("daq").Collection("log")
+	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	options := options.Find()
+	options.SetSort(bson.D{{"_id", -1}})
+	options.SetLimit(1)
+	cursor, err := collection.Find(ctx, bson.M{"priority": bson.M{"$gte": min_level, "$lt": 5}},
+		options)
+	if err != nil{
+		return nil, err
+	}
+
+	var entries []LogEntry
+	for cursor.Next(ctx) {
+		var log_entry LogEntry
+		cursor.Decode(&log_entry)
+		entries = append(entries, log_entry)
+	}
+	return entries, nil
+}
+
 func GetDetectorStatus(detector string, timeout int64) (DetectorStatus, error){
 	// Gets the most recent detector status for detector. Optionally, timeout
 	// ensures that the status is not stale past $timeout seconds or it will

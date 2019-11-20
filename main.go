@@ -30,6 +30,7 @@ func main() {
 	router.HandleFunc("/setcommand/{detector}", AuthCheck(UpdateCommandEndpoint)).Methods("POST")
 	router.HandleFunc("/detector_status/{detector}",
 		AuthCheck(GetDetectorStatusEndpoint)).Methods("GET")
+	router.HandleFunc("/geterrors", AuthCheck(GetErrorsEndpoint)).Methods("GET")
 	router.HandleFunc("/getstatus/{host}", AuthCheck(GetStatusEndpoint)).Methods("GET")
 	http.ListenAndServe(":12345", router)
 }

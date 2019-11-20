@@ -47,4 +47,9 @@ type DetectorStatus struct{
 	Buffer float64 `json:"buff" bson:"buff,omitempty"`
 	Mode string `json:"mode,omitempty" bson:"mode,omitempty"`
 }
-
+type LogEntry struct{
+	ID primitive.ObjectID `json:"_id, omitempty" bson:"_id,omitempty"`
+	Priority int32 `json:"priority" bson:"priority"`
+	Message string `json:"message" bson:"message"`
+	User string `json:"user" bson:"user"`
+}
